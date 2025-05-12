@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Twilight Forest</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #0a0a1a;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: sans-serif;
+        }
+        #canvas-container {
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: center;
+            position: relative;
+        }
+        .instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 14px;
+            text-align: center;
+            pointer-events: none;
+            transition: opacity 5s;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/p5@1.8.0/lib/p5.js"></script>
+
+<base target="_self">
+
+
+    <div id="canvas-container">
+        <div class="instructions">Move your cursor to attract fireflies<br>Click to plant trees</div>
+    </div>
+
+    <script>
+        const sketch = function(p) {
+            // System configuration
+            let trees = [];
+            let fireflies = [];
+            let fogParticles = [];
+            let maxFireflies = 300;
+            let maxTrees = 50;
+            let maxFogParticles = 500;
+            let canvas;
+            let bgGradient;
+            let lastClickTime = 0;
+            let instructions;
+            
+            // Color palette
+            const colors = {
+                skyDark: p.color(10, 10, 30),
+                skyLight: p.color(30, 20, 60),
+                treeDark: p.color(20, 30, 20),
+                treeLight: p.color(40, 60, 40),
+                firefly: p.color(255, 240, 180),
+                fog: p.color(100, 80, 120, 30)
+            };
+
+            p.setup = function() {
+                canvas = p.createCanvas(p.min(p.windowWidth, 1200), p.min(p.windowHeight, 800));
+                canvas.parent('canvas-container');
+                p.colorMode(p.HSB, 360, 100, 100, 1);
+                
+                // Create background gradient
+                createBackground();
+                
+                // Initialize systems
+                for (let i = 0; i < 15; i++) {
+                    trees.push(new Tree(p.random(p.width), p.height, p.random(50, 150)));
+                }
+                
+                for (let i = 0; i < maxFireflies / 2; i++) {
+                    fireflies.push(new Firefly());
+                }
+                
+                for (let i = 0; i < maxFogParticles / 2; i++) {
+                    fogParticles.push(new FogParticle());
+                }
+                
+                instructions = p.select('.instructions');
+                setTimeout(() => { instructions.style.opacity = '0'; }, 5000);
+            };
+
+            function createBackground() {
+                bgGradient = p.createGraphics(p.width, p.height);
+                bgGradient.rectMode(p.CORNERS);
+                for (let y = 0; y < p.height; y++) {
+                    let inter = p.map(y, 0, p.height, 0, 1);
+                    let c = p.lerpColor(colors.skyLight, colors.skyDark, inter);
+                    bgGradient.stroke(c);
+                    bgGradient.line(0, y, p.width, y);
+                }
+            }
+
+            p.draw = function() {
+                // Draw background
+                p.image(bgGradient, 0, 0);
+                
+                // Update and draw systems
+                updateFog();
+                updateTrees();
+                updateFireflies();
+                
+                // Limit systems for performance
+                if (fireflies.length < maxFireflies && p.frameCount % 5 === 0) {
+                    fireflies.push(new Firefly());
+                }
+                
+                if (fogParticles.length < maxFogParticles && p.frameCount % 2 === 0) {
+                    fogParticles.push(new FogParticle());
+                }
+            };
+
+            function updateFog() {
+                for (let i = fogParticles.length - 1; i >= 0; i--) {
+                    fogParticles[i].update();
+                    fogParticles[i].display();
+                    if (fogParticles[i].isOffscreen()) {
+                        fogParticles.splice(i, 1);
+                    }
+                }
+            }
+
+            function updateTrees() {
+                for (let tree of trees) {
+                    tree.display();
+                }
+            }
+
+            function updateFireflies() {
+                for (let i = fireflies.length - 1; i >= 0; i--) {
+                    fireflies[i].update();
+                    fireflies[i].display();
+                    if (fireflies[i].isOffscreen()) {
+                        fireflies.splice(i, 1);
+                    }
+                }
+            }
+
+            p.mouseMoved = function() {
+                // Attract fireflies to cursor
+                for (let firefly of fireflies) {
+                    let d = p.dist(firefly.pos.x, firefly.pos.y, p.mouseX, p.mouseY);
+                    if (d < 200) {
+                        let angle = p.atan2(p.mouseY - firefly.pos.y, p.mouseX - firefly.pos.x);
+                        firefly.vel.add(p.cos(angle) * 0.2, p.sin(angle) * 0.2);
+                    }
+                }
+            };
+
+            p.mouseClicked = function() {
+                // Prevent rapid clicking
+                if (p.millis() - lastClickTime < 300) return;
+                lastClickTime = p.millis();
+                
+                // Add new tree at click position (constrained to bottom half)
+                if (trees.length < maxTrees) {
+                    let y = p.constrain(p.mouseY, p.height * 0.5, p.height - 10);
+                    trees.push(new Tree(p.mouseX, y, p.random(50, 150)));
+                }
+            };
+
+            p.windowResized = function() {
+                p.resizeCanvas(p.min(p.windowWidth, 1200), p.min(p.windowHeight, 800));
+                createBackground();
+            };
+
+            // Firefly class
+            class Firefly {
+                constructor() {
+                    this.reset();
+                    this.size = p.random(2, 5);
+                    this.brightness = p.random(0.3, 1);
+                    this.hue = p.random(50, 60);
+                    this.saturation = p.random(70, 90);
+                    this.pulseSpeed = p.random(0.02, 0.05);
+                    this.pulsePhase = p.random(p.TWO_PI);
+                }
+                
+                reset() {
+                    this.pos = p.createVector(
+                        p.random(-100, p.width + 100),
+                        p.random(-100, p.height + 100)
+                    );
+                    this.vel = p5.Vector.random2D().mult(p.random(0.5, 2));
+                    this.targetBrightness = p.random(0.5, 1);
+                }
+                
+                update() {
+                    // Organic wandering motion
+                    let noiseVal = p.noise(this.pos.x * 0.01, this.pos.y * 0.01, p.frameCount * 0.01);
+                    let angle = p.map(noiseVal, 0, 1, 0, p.TWO_PI);
+                    let force = p.createVector(p.cos(angle), p.sin(angle)).mult(0.1);
+                    this.vel.add(force);
+                    this.vel.limit(2);
+                    this.pos.add(this.vel);
+                    
+                    // Pulsing brightness
+                    this.pulsePhase += this.pulseSpeed;
+                    this.brightness = this.targetBrightness * (0.5 + 0.5 * p.sin(this.pulsePhase));
+                }
+                
+                display() {
+                    p.noStroke();
+                    let glowColor = p.color(
+                        this.hue,
+                        this.saturation,
+                        100 * this.brightness,
+                        0.8 * this.brightness
+                    );
+                    let coreColor = p.color(
+                        this.hue,
+                        this.saturation * 0.7,
+                        100,
+                        0.9
+                    );
+                    
+                    // Glow effect
+                    p.drawingContext.shadowBlur = 15 * this.brightness;
+                    p.drawingContext.shadowColor = p.color(
+                        this.hue,
+                        this.saturation,
+                        100,
+                        0.5 * this.brightness
+                    );
+                    
+                    // Core
+                    p.fill(coreColor);
+                    p.circle(this.pos.x, this.pos.y, this.size);
+                    
+                    // Reset shadow
+                    p.drawingContext.shadowBlur = 0;
+                }
+                
+                isOffscreen() {
+                    return (
+                        this.pos.x < -100 || this.pos.x > p.width + 100 ||
+                        this.pos.y < -100 || this.pos.y > p.height + 100
+                    );
+                }
+            }
+
+            // Tree class
+            class Tree {
+                constructor(x, y, height) {
+                    this.x = x;
+                    this.y = y;
+                    this.height = height;
+                    this.width = height * 0.2;
+                    this.branches = [];
+                    this.createBranches();
+                }
+                
+                createBranches() {
+                    let branchCount = p.floor(p.map(this.height, 50, 150, 3, 8));
+                    for (let i = 0; i < branchCount; i++) {
+                        let level = p.map(i, 0, branchCount - 1, 0.2, 0.8);
+                        let length = p.random(this.height * 0.3, this.height * 0.5);
+                        let angle = p.random(-p.PI/4, p.PI/4);
+                        this.branches.push({
+                            level: level,
+                            length: length,
+                            angle: angle
+                        });
+                    }
+                }
+                
+                display() {
+                    p.push();
+                    p.translate(this.x, this.y);
+                    
+                    // Trunk
+                    p.noStroke();
+                    let trunkColor = p.lerpColor(
+                        colors.treeDark,
+                        colors.treeLight,
+                        p.noise(this.x * 0.01, p.frameCount * 0.01) * 0.5 + 0.5
+                    );
+                    p.fill(trunkColor);
+                    p.rect(-this.width/2, -this.height, this.width, this.height, this.width/4);
+                    
+                    // Branches
+                    for (let branch of this.branches) {
+                        p.push();
+                        p.translate(0, -this.height * branch.level);
+                        p.rotate(branch.angle);
+                        
+                        let branchWidth = p.map(branch.length, 0, this.height * 0.5, this.width * 0.5, this.width * 0.8);
+                        p.rect(0, 0, branch.length, branchWidth, branchWidth/2);
+                        p.pop();
+                    }
+                    
+                    p.pop();
+                }
+            }
+
+            // Fog particle class
+            class FogParticle {
+                constructor() {
+                    this.reset();
+                    this.size = p.random(10, 50);
+                    this.opacity = p.random(5, 30);
+                }
+                
+                reset() {
+                    this.pos = p.createVector(
+                        p.random(p.width),
+                        p.random(p.height * 0.3, p.height)
+                    );
+                    this.vel = p.createVector(
+                        p.random(-0.2, 0.2),
+                        p.random(-0.5, -0.1)
+                    );
+                    this.life = p.random(100, 200);
+                    this.maxLife = this.life;
+                }
+                
+                update() {
+                    this.pos.add(this.vel);
+                    this.life--;
+                    
+                    // Gentle drifting motion
+                    let noiseVal = p.noise(this.pos.x * 0.01, this.pos.y * 0.01, p.frameCount * 0.01);
+                    let drift = p.map(noiseVal, 0, 1, -0.1, 0.1);
+                    this.vel.x += drift;
+                    this.vel.x = p.constrain(this.vel.x, -0.5, 0.5);
+                }
+                
+                display() {
+                    let alpha = p.map(this.life, 0, this.maxLife, 0, this.opacity);
+                    p.fill(colors.fog);
+                    p.noStroke();
+                    p.circle(this.pos.x, this.pos.y, this.size);
+                }
+                
+                isOffscreen() {
+                    return (
+                        this.pos.y < -this.size ||
+                        this.pos.x < -this.size ||
+                        this.pos.x > p.width + this.size ||
+                        this.life <= 0
+                    );
+                }
+            }
+        };
+
+        new p5(sketch);
+    </script>
+
+              
+          
+                
+          
+              
